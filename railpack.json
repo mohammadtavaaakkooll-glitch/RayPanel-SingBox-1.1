@@ -1,0 +1,6 @@
+{
+  "provider": "python",
+  "deploy": {
+    "startCommand": "python apex_bot.py"
+  }
+}
