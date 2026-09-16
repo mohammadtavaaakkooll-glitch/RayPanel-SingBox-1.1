@@ -167,7 +167,6 @@ def callback(call):
         if not is_admin(call.from_user.id):
             return
         
-        # ===== پاک کردن لیست موقت =====
         db["temp_configs"][str(call.from_user.id)] = []
         save_db(db)
         
