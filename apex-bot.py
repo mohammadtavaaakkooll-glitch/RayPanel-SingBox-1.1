@@ -12,10 +12,6 @@ CHANNEL_LINK = "https://t.me/Apex_0Vpn"
 CARD_NUMBER = "5054161706012493"
 CARD_OWNER = "رابیه آرام"
 
-# ===== پوشه ذخیره کانفیگ‌ها =====
-CONFIG_DIR = "configs"
-os.makedirs(CONFIG_DIR, exist_ok=True)
-
 bot = telebot.TeleBot(BOT_TOKEN)
 
 # ===== دیتابیس =====
@@ -25,7 +21,7 @@ def load_db():
     if os.path.exists(DB_FILE):
         with open(DB_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
-    return {"users": {}, "configs": [], "receipts": []}
+    return {"users": {}, "configs": [], "receipts": [], "temp_configs": {}}
 
 def save_db(db):
     with open(DB_FILE, "w", encoding="utf-8") as f:
@@ -120,6 +116,7 @@ def callback(call):
             bot.answer_callback_query(call.id, "❌ هنوز عضو نشدی!", show_alert=True)
         return
 
+    # ===== اکانت تست =====
     if call.data == "test":
         if db["users"].get(uid, {}).get("test_used", False):
             markup = types.InlineKeyboardMarkup()
@@ -131,40 +128,24 @@ def callback(call):
             bot.answer_callback_query(call.id, "❌ در حال حاضر کانفیگ تست موجود نیست!", show_alert=True)
             return
 
-        config_file = db["configs"][0]
+        config = db["configs"][0]
         db["configs"].pop(0)
         db["users"][uid]["test_used"] = True
         save_db(db)
 
-        file_path = os.path.join(CONFIG_DIR, config_file)
-        
-        if not os.path.exists(file_path):
-            bot.answer_callback_query(call.id, "❌ فایل کانفیگ پیدا نشد!", show_alert=True)
-            return
-
-        with open(file_path, "rb") as f:
-            bot.send_document(
-                cid,
-                f,
-                caption=(
-                    "🎁 **اکانت تست شما:**\n\n"
-                    "📌 حجم: **۵۰۰ مگابایت**\n"
-                    "⏳ مدت: **۲۴ ساعت**\n\n"
-                    "📱 فایل رو با **NPV Tunnel** باز کنید.\n"
-                    "⚠️ این اکانت فقط یک بار قابل دریافت است."
-                ),
-                parse_mode="Markdown"
-            )
-        
-        try:
-            os.remove(file_path)
-        except:
-            pass
-        
         markup = types.InlineKeyboardMarkup()
         markup.add(types.InlineKeyboardButton("🔙 بازگشت", callback_data="back"))
-        bot.send_message(cid, "برای بازگشت به منو، روی دکمه زیر بزنید:", reply_markup=markup)
+        bot.edit_message_text(
+            f"🎁 **اکانت تست شما:**\n\n"
+            f"`{config}`\n\n"
+            f"📌 حجم: **۵۰۰ مگابایت**\n"
+            f"⏳ مدت: **۲۴ ساعت**\n\n"
+            f"📱 کانفیگ رو کپی کن و توی **V2Ray** یا **NPV Tunnel** ایمپورت کن.\n"
+            f"⚠️ این اکانت فقط یک بار قابل دریافت است.",
+            cid, call.message.message_id, reply_markup=markup, parse_mode="Markdown"
+        )
 
+    # ===== پنل ادمین =====
     elif call.data == "admin_panel":
         if not is_admin(call.from_user.id):
             bot.answer_callback_query(call.id, "❌ شما ادمین نیستید!", show_alert=True)
@@ -172,7 +153,7 @@ def callback(call):
 
         markup = types.InlineKeyboardMarkup(row_width=2)
         markup.add(
-            types.InlineKeyboardButton("📤 آپلود کانفیگ تست", callback_data="admin_upload"),
+            types.InlineKeyboardButton("📤 ارسال کانفیگ جدید", callback_data="admin_send_config"),
             types.InlineKeyboardButton("📊 آمار ربات", callback_data="admin_stats"),
             types.InlineKeyboardButton("📦 تعداد کانفیگ‌ها", callback_data="admin_config_count"),
             types.InlineKeyboardButton("🗑️ حذف همه کانفیگ‌ها", callback_data="admin_clear_configs"),
@@ -181,18 +162,72 @@ def callback(call):
         )
         bot.edit_message_text("👑 **پنل ادمین APEX VPN**\n\nاز دکمه‌های زیر استفاده کنید:", cid, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
 
-    elif call.data == "admin_upload":
+    # ===== شروع ارسال کانفیگ =====
+    elif call.data == "admin_send_config":
         if not is_admin(call.from_user.id):
             return
-        bot.edit_message_text(
-            "📤 **آپلود کانفیگ تست (فایل NPVS)**\n\n"
-            "فایل‌های `.npvs` خود را ارسال کنید.\n"
-            "می‌توانید چند فایل را یکجا بفرستید.\n\n"
-            "⚠️ فقط فایل با فرمت `.npvs` قبول می‌شود.",
-            cid, call.message.message_id
+        
+        # ===== پاک کردن لیست موقت =====
+        db["temp_configs"][str(call.from_user.id)] = []
+        save_db(db)
+        
+        markup = types.InlineKeyboardMarkup(row_width=2)
+        markup.add(
+            types.InlineKeyboardButton("✅ تایید و ذخیره", callback_data="admin_confirm_configs"),
+            types.InlineKeyboardButton("❌ لغو", callback_data="admin_cancel_configs"),
         )
-        bot.register_next_step_handler_by_chat_id(cid, handle_config_upload)
+        
+        bot.edit_message_text(
+            "📤 **ارسال کانفیگ جدید**\n\n"
+            "کانفیگ‌ها را **یکی‌یکی** بفرستید.\n"
+            "هر کانفیگ رو که فرستادید، ربات ذخیره میکنه.\n"
+            "وقتی همه رو فرستادید، روی **✅ تایید و ذخیره** بزنید.\n\n"
+            "⚠️ هر کانفیگ باید **توی یه پیام جدا** باشه.",
+            cid, call.message.message_id, reply_markup=markup, parse_mode="Markdown"
+        )
+        bot.register_next_step_handler_by_chat_id(cid, handle_single_config)
 
+    # ===== تایید کانفیگ‌ها =====
+    elif call.data == "admin_confirm_configs":
+        if not is_admin(call.from_user.id):
+            return
+        
+        temp = db["temp_configs"].get(str(call.from_user.id), [])
+        
+        if not temp:
+            bot.answer_callback_query(call.id, "❌ هیچ کانفیگی ذخیره نشده!", show_alert=True)
+            return
+        
+        db["configs"].extend(temp)
+        db["temp_configs"][str(call.from_user.id)] = []
+        save_db(db)
+        
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("👑 بازگشت به پنل ادمین", callback_data="admin_panel"))
+        
+        bot.edit_message_text(
+            f"✅ **{len(temp)} کانفیگ با موفقیت ذخیره شد!**\n\n"
+            f"📦 مجموع کانفیگ‌ها: **{len(db['configs'])}**",
+            cid, call.message.message_id, reply_markup=markup, parse_mode="Markdown"
+        )
+
+    # ===== لغو کانفیگ‌ها =====
+    elif call.data == "admin_cancel_configs":
+        if not is_admin(call.from_user.id):
+            return
+        
+        db["temp_configs"][str(call.from_user.id)] = []
+        save_db(db)
+        
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("👑 بازگشت به پنل ادمین", callback_data="admin_panel"))
+        
+        bot.edit_message_text(
+            "❌ **ارسال کانفیگ لغو شد.**",
+            cid, call.message.message_id, reply_markup=markup, parse_mode="Markdown"
+        )
+
+    # ===== آمار =====
     elif call.data == "admin_stats":
         if not is_admin(call.from_user.id):
             return
@@ -209,6 +244,7 @@ def callback(call):
             cid, call.message.message_id, reply_markup=markup, parse_mode="Markdown"
         )
 
+    # ===== تعداد کانفیگ =====
     elif call.data == "admin_config_count":
         if not is_admin(call.from_user.id):
             return
@@ -217,14 +253,11 @@ def callback(call):
         markup.add(types.InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel"))
         bot.edit_message_text(f"📦 **تعداد کانفیگ‌های تست:** **{count}**", cid, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
 
+    # ===== حذف همه کانفیگ‌ها =====
     elif call.data == "admin_clear_configs":
         if not is_admin(call.from_user.id):
             return
         count = len(db["configs"])
-        for config_file in db["configs"]:
-            file_path = os.path.join(CONFIG_DIR, config_file)
-            if os.path.exists(file_path):
-                os.remove(file_path)
         db["configs"] = []
         save_db(db)
         bot.answer_callback_query(call.id, f"✅ {count} کانفیگ حذف شد!", show_alert=True)
@@ -232,12 +265,14 @@ def callback(call):
         markup.add(types.InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel"))
         bot.edit_message_text(f"🗑️ **{count} کانفیگ حذف شد!**", cid, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
 
+    # ===== پیام همگانی =====
     elif call.data == "admin_broadcast":
         if not is_admin(call.from_user.id):
             return
         bot.edit_message_text("📨 **ارسال پیام همگانی**\n\nپیام خود را ارسال کنید:", cid, call.message.message_id)
         bot.register_next_step_handler_by_chat_id(cid, handle_broadcast)
 
+    # ===== خرید =====
     elif call.data == "buy":
         markup = types.InlineKeyboardMarkup(row_width=1)
         markup.add(
@@ -273,6 +308,7 @@ def callback(call):
         markup.add(types.InlineKeyboardButton("🔙 بازگشت", callback_data="buy"))
         bot.edit_message_text(text, cid, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
 
+    # ===== رفرال =====
     elif call.data == "referral":
         refs = db["users"].get(uid, {}).get("refs", 0)
         remaining = 5 - (refs % 5)
@@ -291,6 +327,7 @@ def callback(call):
         markup.add(types.InlineKeyboardButton("🔙 بازگشت", callback_data="back"))
         bot.edit_message_text(text, cid, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
 
+    # ===== واریز =====
     elif call.data == "deposit":
         text = (
             "💳 **واریز به حساب**\n\n"
@@ -307,6 +344,7 @@ def callback(call):
         bot.send_message(cid, "📸 **لطفاً عکس رسید خود را ارسال کنید.**")
         bot.register_next_step_handler_by_chat_id(cid, handle_receipt)
 
+    # ===== وضعیت =====
     elif call.data == "status":
         text = (
             "📊 **وضعیت سرور:**\n\n"
@@ -318,6 +356,7 @@ def callback(call):
         markup.add(types.InlineKeyboardButton("🔙 بازگشت", callback_data="back"))
         bot.edit_message_text(text, cid, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
 
+    # ===== پشتیبانی =====
     elif call.data == "support":
         text = (
             "📞 **پشتیبانی APEX VPN**\n\n"
@@ -328,42 +367,46 @@ def callback(call):
         markup.add(types.InlineKeyboardButton("🔙 بازگشت", callback_data="back"))
         bot.edit_message_text(text, cid, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
 
+    # ===== بازگشت =====
     elif call.data == "back":
         bot.delete_message(cid, call.message.message_id)
         show_main_menu(cid, call.from_user.id)
 
-# ===== هندلر آپلود فایل NPVS =====
-def handle_config_upload(message):
+# ===== هندلر دریافت کانفیگ یکی‌یکی =====
+def handle_single_config(message):
     if not is_admin(message.from_user.id):
         return
     
-    if message.content_type == 'document':
-        file_name = message.document.file_name
-        
-        if not file_name.endswith(".npvs"):
-            bot.reply_to(message, "❌ فقط فایل `.npvs` قبول می‌شود!")
-            return
-        
-        # ===== دانلود فایل =====
-        file_info = bot.get_file(message.document.file_id)
-        downloaded_file = bot.download_file(file_info.file_path)
-        
-        # ===== ذخیره فایل =====
-        save_path = os.path.join(CONFIG_DIR, file_name)
-        with open(save_path, "wb") as f:
-            f.write(downloaded_file)
-        
-        # ===== اضافه کردن به لیست =====
-        db["configs"].append(file_name)
-        save_db(db)
-        
-        bot.reply_to(
-            message,
-            f"✅ **فایل `{file_name}` ذخیره شد!**\n\n"
-            f"📦 مجموع کانفیگ‌ها: **{len(db['configs'])}**"
-        )
-    else:
-        bot.reply_to(message, "❌ لطفاً فایل `.npvs` ارسال کنید!")
+    config = message.text.strip() if message.text else ""
+    
+    if not config:
+        bot.reply_to(message, "❌ کانفیگ خالی است! دوباره بفرست:")
+        bot.register_next_step_handler(message, handle_single_config)
+        return
+    
+    uid = str(message.from_user.id)
+    if uid not in db["temp_configs"]:
+        db["temp_configs"][uid] = []
+    
+    db["temp_configs"][uid].append(config)
+    save_db(db)
+    
+    count = len(db["temp_configs"][uid])
+    
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    markup.add(
+        types.InlineKeyboardButton("✅ تایید و ذخیره", callback_data="admin_confirm_configs"),
+        types.InlineKeyboardButton("❌ لغو", callback_data="admin_cancel_configs"),
+    )
+    
+    bot.reply_to(
+        message,
+        f"✅ **کانفیگ شماره {count} ذخیره شد!**\n\n"
+        f"می‌تونی کانفیگ بعدی رو بفرستی، یا روی **✅ تایید و ذخیره** بزنی.",
+        reply_markup=markup
+    )
+    
+    bot.register_next_step_handler(message, handle_single_config)
 
 # ===== هندلر پیام همگانی =====
 def handle_broadcast(message):
@@ -405,7 +448,7 @@ def admin_command(message):
         return
     markup = types.InlineKeyboardMarkup(row_width=2)
     markup.add(
-        types.InlineKeyboardButton("📤 آپلود کانفیگ", callback_data="admin_upload"),
+        types.InlineKeyboardButton("📤 ارسال کانفیگ", callback_data="admin_send_config"),
         types.InlineKeyboardButton("📊 آمار", callback_data="admin_stats"),
         types.InlineKeyboardButton("📦 تعداد کانفیگ", callback_data="admin_config_count"),
         types.InlineKeyboardButton("🗑️ حذف کانفیگ‌ها", callback_data="admin_clear_configs"),
@@ -416,6 +459,4 @@ def admin_command(message):
 # ===== اجرا =====
 print("🔥 APEX VPN Bot is running...")
 print(f"👑 Admin ID: {ADMIN_ID}")
-print(f"📁 Config Dir: {CONFIG_DIR}")
-print(f"📄 File Format: .npvs")
 bot.infinity_polling()
