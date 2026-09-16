@@ -4,7 +4,7 @@ import json
 import os
 from datetime import datetime
 
-BOT_TOKEN = "8600413467:AAH0jVTLHfXqhhrVCrHFXqZQhTjoRPo11lw"
+BOT_TOKEN = "8933383298:AAGIVO89LhPeTfRwSd_X7vMQ1eKURBdsnSM"
 ADMIN_ID = 8485844128
 ADMIN_USERNAME = "@M4mmmmmmmmmmm"
 CHANNEL_USERNAME = "@Apex_0Vpn"
