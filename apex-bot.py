@@ -78,6 +78,7 @@ def start(message):
             "username": message.from_user.username or "",
             "joined": str(datetime.now()),
             "test_used": False,
+            "test_config": "",
             "refs": 0,
             "ref_by": ref_by
         }
@@ -87,6 +88,11 @@ def start(message):
             refs = db["users"][ref_by]["refs"]
             if refs % 5 == 0:
                 bot.send_message(int(ref_by), f"🎉 **تبریک!**\n\nشما به **{refs}** دعوت رسیدید!\n🎁 **۱۰ گیگ رایگان** به شما تعلق گرفت!\n\nبرای دریافت، با پشتیبانی تماس بگیرید: {ADMIN_USERNAME}")
+        save_db(db)
+    
+    # ===== اضافه کردن test_config برای کاربرای قدیمی =====
+    if "test_config" not in db["users"][uid]:
+        db["users"][uid]["test_config"] = ""
         save_db(db)
     
     show_main_menu(message.chat.id, message.from_user.id)
@@ -107,6 +113,7 @@ def callback(call):
                     "username": call.from_user.username or "",
                     "joined": str(datetime.now()),
                     "test_used": False,
+                    "test_config": "",
                     "refs": 0,
                     "ref_by": None
                 }
@@ -118,19 +125,48 @@ def callback(call):
 
     # ===== اکانت تست =====
     if call.data == "test":
-        if db["users"].get(uid, {}).get("test_used", False):
+        user_data = db["users"].get(uid, {})
+        
+        # ===== اگه قبلاً تست گرفته =====
+        if user_data.get("test_used", False):
+            old_config = user_data.get("test_config", "")
+            
+            if old_config:
+                text = (
+                    f"⚠️ **شما قبلاً اکانت تست دریافت کرده‌اید!**\n\n"
+                    f"🎁 **کانفیگ تست قبلی شما:**\n\n"
+                    f"`{old_config}`\n\n"
+                    f"📌 حجم: **۵۰۰ مگابایت**\n"
+                    f"⏳ مدت: **۲۴ ساعت**\n\n"
+                    f"❌ **امکان دریافت کانفیگ جدید وجود ندارد!**\n"
+                    f"هر کاربر فقط یک بار می‌تواند اکانت تست دریافت کند.\n\n"
+                    f"💡 برای دریافت اکانت بیشتر، اشتراک خریداری کنید یا دوستان خود را دعوت کنید."
+                )
+            else:
+                text = (
+                    "❌ **شما قبلاً از اکانت تست استفاده کرده‌اید!**\n\n"
+                    "هر کاربر فقط یک بار می‌تواند اکانت تست دریافت کند.\n\n"
+                    "💡 برای دریافت اکانت بیشتر، اشتراک خریداری کنید یا دوستان خود را دعوت کنید."
+                )
+            
             markup = types.InlineKeyboardMarkup()
+            markup.add(types.InlineKeyboardButton("🛒 خرید اشتراک", callback_data="buy"))
+            markup.add(types.InlineKeyboardButton("👥 دعوت دوستان", callback_data="referral"))
             markup.add(types.InlineKeyboardButton("🔙 بازگشت", callback_data="back"))
-            bot.edit_message_text("❌ **شما قبلاً از اکانت تست استفاده کرده‌اید!**\n\nهر کاربر فقط یک بار می‌تواند اکانت تست دریافت کند.", cid, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
+            
+            bot.edit_message_text(text, cid, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
             return
 
+        # ===== چک کردن موجودی کانفیگ =====
         if not db["configs"]:
             bot.answer_callback_query(call.id, "❌ در حال حاضر کانفیگ تست موجود نیست!", show_alert=True)
             return
 
+        # ===== برداشتن کانفیگ و ذخیره برای کاربر =====
         config = db["configs"][0]
         db["configs"].pop(0)
         db["users"][uid]["test_used"] = True
+        db["users"][uid]["test_config"] = config
         save_db(db)
 
         markup = types.InlineKeyboardMarkup()
@@ -233,12 +269,15 @@ def callback(call):
         total_users = len(db["users"])
         total_configs = len(db["configs"])
         total_receipts = len(db.get("receipts", []))
+        used_tests = sum(1 for u in db["users"].values() if u.get("test_used", False))
+        
         markup = types.InlineKeyboardMarkup()
         markup.add(types.InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel"))
         bot.edit_message_text(
             f"📊 **آمار ربات:**\n\n"
             f"👥 کاربران: **{total_users}**\n"
             f"📦 کانفیگ‌های تست: **{total_configs}**\n"
+            f"🎁 تست‌های استفاده شده: **{used_tests}**\n"
             f"📨 رسیدها: **{total_receipts}**",
             cid, call.message.message_id, reply_markup=markup, parse_mode="Markdown"
         )
