@@ -4,9 +4,11 @@ import json
 import os
 from datetime import datetime
 
-BOT_TOKEN = "8977274217:AAGnwuDpL7IIxjFLDAgTj4WFQwSNeJfxY1o"
+BOT_TOKEN = "8977274217:AAEHl5-eq0jyuPsv7zNHjlIr4NOtA0uRtNc"
 ADMIN_ID = 7438569833
 SUPPORT = "@GenralIran"
+CHANNEL = "@FoxShop_IRAN"
+CHANNEL_LINK = "https://t.me/FoxShop_IRAN"
 CARD = "5054161706012493"
 CARD_OWNER = "رابیه آرام"
 
@@ -26,7 +28,6 @@ def save_db(db):
 
 db = load_db()
 
-# ===== لیست گیفت‌ها (قیمت + ۳۰,۰۰۰) =====
 GIFTS = {
     "gol":       ("🌹 گیفت گل",              "130,920"),
     "kado":      ("🎁 گیفت کادو",             "130,920"),
@@ -44,7 +45,23 @@ GIFTS = {
 def is_admin(uid):
     return str(uid) == str(ADMIN_ID)
 
-# ===== منوی اصلی =====
+def is_member(uid):
+    try:
+        member = bot.get_chat_member(CHANNEL, uid)
+        return member.status in ["member", "administrator", "creator"]
+    except:
+        return False
+
+def check_join(cid, uid):
+    markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton("📢 عضویت در کانال", url=CHANNEL_LINK))
+    markup.add(types.InlineKeyboardButton("✅ عضو شدم", callback_data="check_join"))
+    bot.send_message(cid,
+        f"⚠️ **برای استفاده از ربات، ابتدا در کانال زیر عضو شوید:**\n\n"
+        f"📢 {CHANNEL}\n\n"
+        f"سپس روی «عضو شدم» بزنید.",
+        reply_markup=markup, parse_mode="Markdown")
+
 def main_menu(cid, uid):
     markup = types.InlineKeyboardMarkup(row_width=2)
     markup.add(
@@ -67,6 +84,11 @@ def main_menu(cid, uid):
 @bot.message_handler(commands=['start'])
 def start(message):
     uid = str(message.from_user.id)
+    
+    if not is_member(message.from_user.id):
+        check_join(message.chat.id, message.from_user.id)
+        return
+    
     if uid not in db["users"]:
         db["users"][uid] = {
             "name": message.from_user.first_name,
@@ -75,13 +97,37 @@ def start(message):
             "carts": {}
         }
         save_db(db)
+    
     main_menu(message.chat.id, message.from_user.id)
 
-# ===== Callbacks =====
 @bot.callback_query_handler(func=lambda call: True)
 def callback(call):
     cid = call.message.chat.id
     uid = str(call.from_user.id)
+
+    if call.data == "check_join":
+        if is_member(call.from_user.id):
+            bot.answer_callback_query(call.id, "✅ عضویت تایید شد!")
+            try:
+                bot.delete_message(cid, call.message.message_id)
+            except:
+                pass
+            if uid not in db["users"]:
+                db["users"][uid] = {
+                    "name": call.from_user.first_name,
+                    "username": call.from_user.username or "",
+                    "joined": str(datetime.now()),
+                    "carts": {}
+                }
+                save_db(db)
+            main_menu(cid, call.from_user.id)
+        else:
+            bot.answer_callback_query(call.id, "❌ هنوز عضو نشدی!", show_alert=True)
+        return
+
+    if not is_member(call.from_user.id):
+        check_join(cid, call.from_user.id)
+        return
 
     if call.data == "buy":
         markup = types.InlineKeyboardMarkup(row_width=1)
@@ -235,7 +281,6 @@ def callback(call):
         except:
             pass
 
-# ===== دریافت آیدی هدف =====
 def get_target(message, key, name, price, target_type):
     uid = str(message.from_user.id)
     target_id = message.text.strip()
@@ -269,7 +314,6 @@ def get_target(message, key, name, price, target_type):
         f"برای پرداخت روی دکمه زیر بزن:",
         reply_markup=markup, parse_mode="Markdown")
 
-# ===== دریافت تعداد استارز =====
 def get_stars(message):
     try:
         count = int(message.text.strip())
@@ -302,7 +346,6 @@ def get_stars(message):
     except:
         bot.send_message(message.chat.id, "❌ عدد نامعتبر!")
 
-# ===== ذخیره رسید =====
 def save_receipt(message, key):
     if message.content_type not in ['photo', 'document']:
         bot.send_message(message.chat.id, "❌ لطفاً **عکس رسید** ارسال کن!")
@@ -358,7 +401,6 @@ def save_receipt(message, key):
     except:
         pass
 
-# ===== پنل ادمین =====
 def admin_panel(cid, msg_id=None):
     total_orders = len(db["orders"])
     pending = len([o for o in db["orders"] if o["status"] == "در انتظار تایید"])
